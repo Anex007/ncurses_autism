@@ -8,9 +8,11 @@
 
 static char num_clients;
 static paper_client clients[MAX_CLIENTS];
+static char locker = -1;
 
 void on_client_connect(io_client_t* client)
 {
+    SET_LOCK(num_clients);
     if (num_clients >= MAX_CLIENTS || has_space()) {
       /* Code here to close the client because the room is full */
     }
@@ -19,7 +21,6 @@ void on_client_connect(io_client_t* client)
 
     client->on_close = on_client_close;
     client->on_read = on_client_read;
-
     paper_client* p_client = &clients[num_clients];
     p_client->client_id = num_clients++;
     p_client->head_loc.x = ;
@@ -27,10 +28,13 @@ void on_client_connect(io_client_t* client)
     &p_client->owns = malloc(sizeof(vector*) * MIN_ARR);
     &p_client->conquering = malloc(sizeof(vector*) * MIN_ARR);
     p_client->color = rand() % MAX_CLIENTS;   /* Picks a random color */
+    p_client->io_id = client;
 
     /* Code here to send the client with it's information */
 
     client->user_data = p_client;
+
+    UNSET_LOCK(num_clients);
 }
 
 bool client_write(void* client, const char* data, size_t len)
@@ -40,7 +44,7 @@ bool client_write(void* client, const char* data, size_t len)
 
 void on_client_close(io_client_t* client)
 {
-   /* Code here when the client closes without telling */
+    /* Code here when the client closes without telling */
 }
 
 void close_io_client(void* client)
@@ -53,7 +57,15 @@ void on_client_read(io_client_t* client, const char* data, size_t len)
     handle_data(ep, client->user_data, data, len);
 }
 
+void ticker(int signo)
+{
+    for (char i = 0; i < MAX_CLIENTS; i++) {
+        /* Check if the client is being modified? if yes do nothing */
+        if(IS_SET_LOCK(i))
+            continue;
+    }
 
+}
 
 int main(int argc, char *argv[])
 {
@@ -76,7 +88,17 @@ int main(int argc, char *argv[])
     loop.on_connect = on_client_connect;
 
     /* Set the timer so that it alarms every timeout or so */
-    memset
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = &ticker;
+    sigaction (SIGVTALRM, &sa, NULL);
+
+    // NOTE: TIME_TICK should be less than 1000
+    timer.it_value.tv_sec = 0;
+    timer.it_value.tv_usec = 1000 * TICK_TIME;
+    timer.it_interval.tv_sec = 0;
+    timer.it_interval.tv_usec = 1000 * TICK_TIME;
+
+    setitimer(ITIMER_VIRTUAL, &timer, NULL);
 
     return io_loop_run(&loop);
 }
