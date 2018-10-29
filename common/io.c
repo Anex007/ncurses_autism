@@ -143,6 +143,8 @@ int io_loop_run(io_loop_t* loop) {
 
         // iterate through received io events
         int num_events = epoll_wait(loop->poll_fd, events, NUM_EPOLL_EVENTS, -1);
+        if(num_events == -1)
+            perror("epoll_wait");
         while (num_events--) {
             event = events[num_events];
             client = (io_client_t*) event.data.ptr;

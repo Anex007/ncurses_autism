@@ -15,6 +15,11 @@
 #define UNSET_LOCK(id)    (locker=-1)
 #define IS_SET_LOCK(id)   (locker==id)
 
+#define LEFT   0
+#define RIGHT  1
+#define UP     2
+#define DOWN   3
+
 typedef struct
 {
     int x, y;
@@ -24,9 +29,10 @@ typedef struct
 {
    char client_id;         /* Unique number for client. */
    vector head_loc;        /* vector for the head of the player. */
-   vector* owns;           /* vector array for the area the player owns. */
-   vector* conquering;     /* vector array of the area the player is currently conquering. */
+   vector scope;           /* The scope (visibility) of the client */
    char color;             /* color of the client. */
+   char direction;         /* The direction in which the client is moving rn */
+   char movmnt;            /* The direction in which to turn in the next tick */
    void* io_id;            /* Useful when updating the pos */
 }paper_client;
 

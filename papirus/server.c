@@ -9,6 +9,8 @@
 static char num_clients;
 static paper_client clients[MAX_CLIENTS];
 static char locker = -1;
+char* conquering;
+char* owns;
 
 void on_client_connect(io_client_t* client)
 {
@@ -59,10 +61,43 @@ void on_client_read(io_client_t* client, const char* data, size_t len)
 
 void ticker(int signo)
 {
+    paper_client* p_client;
+    update_positions(); // Updates the owns, conquering & head values of the client.
+    make_connections(); // This connects all the conquering and own plots based on some math.
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        /* Code here to get the part the client needs to know */
+    }
+}
+
+
+void update_positions(void)
+{
     for (char i = 0; i < MAX_CLIENTS; i++) {
-        /* Check if the client is being modified? if yes do nothing */
-        if(IS_SET_LOCK(i))
+        p_client = &clients[i];
+        /* Check if the client is being modified or if the struct is not used */
+        if(IS_SET_LOCK(i) || p_client->client_id == -1)
             continue;
+        switch (p_client->movmnt) {
+            case LEFT:
+                if (p_client->direction == LEFT || p_client->direction == RIGHT)
+                {
+                    p_client->head_loc.x -= 1;
+                }
+                else if (p_client->direction == UP)
+                {
+                }
+                else
+                {
+                }
+                break;
+            default:
+                
+        }
+        if (p_client->head_loc.x < 0 || p_client->head_loc.x >= COLS ||
+                p_client->head_loc.y < 0 || p_client->head_loc.y >= ROWS)
+        {
+            /* Code here to let the client know he's dead because he hit the wall. */
+        }
     }
 
 }
@@ -74,9 +109,15 @@ int main(int argc, char *argv[])
     struct sigaction sa;
     struct itimerval timer;
 
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    owns = malloc(ROWS * COLS * sizeof(char));
+    conquering = malloc(ROWS * COLS * sizeof(char));
+
+    // initialize with -1.
+    for (int i = 0; i < ROWS*COLS; i++)
+        owns[i] = conquering[i] = -1;
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
         clients[i].client_id = -1;  /* Initialize with -1 */
-    }
 
     if (!io_loop_init(&loop, port)) {
         fprintf(stderr, "Failed to initialize io loop on port %d. Try a different port\n", port);
