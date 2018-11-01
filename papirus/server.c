@@ -1,10 +1,11 @@
 #include "server.h"
-#include "../common/io.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <sys/socket.h>
 
 static char num_clients;
 static paper_client clients[MAX_CLIENTS];
@@ -42,11 +43,6 @@ void on_client_connect(io_client_t* client)
 bool client_write(void* client, const char* data, size_t len)
 {
     return io_client_write((io_client_t*)client, data, len);
-}
-
-void on_client_close(io_client_t* client)
-{
-    /* Code here when the client closes without telling */
 }
 
 void close_io_client(void* client)
@@ -102,12 +98,43 @@ void update_positions(void)
 
 }
 
+int create_server()
+{
+    int s;
+    struct sockaddr_in me;
+    if ((s = socket.socket(AF_INET, SOCK_DRGAM. IPPROTO_UDP)) == -1) {
+        perror("socket creation");
+        return s;
+    }
+    memset(&me, 0, sizeof(struct sockaddr_in));
+    me.sin_family = AF_INET;
+    me.sin_port = htons(PORT);
+    me.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(s, (struct sockaddr*)&me, sizeof(struct sockaddr_in)) == -1) {
+        perror("bind");
+        close(s);
+        return -1;
+    }
+    return s;
+}
+
+int run_loop(int s)
+{
+    unsigned char buf[BUFFER_LEN];
+    struct sockaddr_in client_addr;
+    int s_len;
+    while(1) {
+        recvfrom(s, buf, BUFFER_LEN, 0, (struct sockaddr*)&client_addr, &s_len);
+        // Iterate through the list
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
-    io_loop_t loop;
-    int port = 6969;
     struct sigaction sa;
     struct itimerval timer;
+    int s;
 
     owns = malloc(ROWS * COLS * sizeof(char));
     conquering = malloc(ROWS * COLS * sizeof(char));
@@ -119,12 +146,12 @@ int main(int argc, char *argv[])
     for (int i = 0; i < MAX_CLIENTS; i++)
         clients[i].client_id = -1;  /* Initialize with -1 */
 
-    if (!io_loop_init(&loop, port)) {
-        fprintf(stderr, "Failed to initialize io loop on port %d. Try a different port\n", port);
+    if (create_server() == -1) {
+        fprintf(stderr, "Failed to initialize io loop on port %d. Try a different port\n", PORT);
         return -1;
     }
 #ifdef DEBUG_ON
-    printf("Server started on :%d\n", port);
+    printf("Server started on :%d\n", PORT);
 #endif
     loop.on_connect = on_client_connect;
 
@@ -141,5 +168,5 @@ int main(int argc, char *argv[])
 
     setitimer(ITIMER_VIRTUAL, &timer, NULL);
 
-    return io_loop_run(&loop);
+    return run_loop(s);
 }

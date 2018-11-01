@@ -1,6 +1,9 @@
 #ifndef PAPER_SERVER
 #define PAPER_SERVER
 
+/* For the sockaddr_in struct */
+#include <sys/socket.h>
+
 #define ROWS 1000
 #define COLS 1000
 
@@ -20,6 +23,9 @@
 #define UP     2
 #define DOWN   3
 
+#define PORT 6969
+#define BUFFER_LEN 2048
+
 typedef struct
 {
     int x, y;
@@ -33,7 +39,7 @@ typedef struct
    char color;             /* color of the client. */
    char direction;         /* The direction in which the client is moving rn */
    char movmnt;            /* The direction in which to turn in the next tick */
-   void* io_id;            /* Useful when updating the pos */
+   struct sockaddr_in io;  /* Useful when updating the pos */
 }paper_client;
 
 #endif /* ifndef PAPER_SERVER */
