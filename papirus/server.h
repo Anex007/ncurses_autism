@@ -7,12 +7,25 @@
 #define ROWS 1000
 #define COLS 1000
 
+#define MIN_ROW 13
+#define MIN_COL 13
+
+#define GET_OWNS(x) (x & 0xf)
+#define SET_OWNS(var, id) (var = id & 0xf)
+#define GET_CONQUERING(x) (x >> 4)
+#define SET_CONQUERING(var, id) (var = id >> 4)
+
+#define FREE_OWN(x) (x & 0xf)
+#define FREE_CONQUERING(x) (x & 0xf0)
+#define FREE_ESTATE(x) (x == -1)
+
+#define X_Y_TO_1D(x, y) (y * ROWS + x)
+
+// can never be over 15
 #define MAX_CLIENTS 8   // This is the max clients the server can let in if all the clients are below 7% or something.
 
 /* Should be less than 1000 for timer reasons (change from usec to sec) */
 #define TICK_TIME 500   /* The tick time (milliseconds) in which every client should move in the direction */
-
-#define MIN_ARR   100
 
 #define SET_LOCK(id)      (locker=id)
 #define UNSET_LOCK(id)    (locker=-1)
@@ -25,6 +38,9 @@
 
 #define PORT 6969
 #define BUFFER_LEN 2048
+
+#define INIT_HDR    0
+#define UPDATE_HDR  1
 
 typedef struct
 {
