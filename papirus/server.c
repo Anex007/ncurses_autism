@@ -83,6 +83,8 @@ void on_client_connect(struct sockaddr_in* client, const char* data, int len)
     p_client->color = rand() % MAX_CLIENTS;   /* Picks a random color */
     p_client->direction = rand() % 4;
     p_client->movmnt = p_client->direction;
+    strncpy(p_client->username, , 25);
+    p_client->username[25] = 0; // NULL Terminate it.
     memcpy(p_client->io, client, sizeof(struct sockaddr_in));
 
     // for sending it to the client when updating.
@@ -100,7 +102,7 @@ inline int send_to_client(paper_client* p_client, const void* data, int len)
     return sendto(main_socket, data, len, 0, (struct sockaddr*)&p_client->io, sizeof(sockaddr));
 }
 
-inline void client_dead(paper_client* p_client)
+void client_dead(paper_client* p_client)
 {
     // Unset the reference for the color.
     int client_id = p_client->client_id;
@@ -118,9 +120,12 @@ inline void client_dead(paper_client* p_client)
 
 void on_client_read(paper_client* p_client, const char* data, int len)
 {
-    if (len < 3)
-        return;
-    p_client->
+    if (data[0] == INIT_HDR && len > 8) {
+        memcpy(&p_client->scope.x, data+1, sizeof(int)); 
+        memcpy(&p_client->scope.y, data+5, sizeof(int)); 
+    } else if (data[0] == UPDATE_HDR && len > 1) {
+        p_client->movmnt = data[1];
+    }
 }
 
 inline void check_collisions(paper_client* p_client, int max)
@@ -206,12 +211,106 @@ inline void send_visible(paper_client* p_client)
     free(to_send);
 }
 
-inline void connect_estates(paper_client* p_client)
+char connect_estates(paper_client* p_client)
 {
+    char c_id = p_client->client_id;
     // If the plot is not owned by the client dont do anything.
     if (GET_OWNS(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)]) != p_client->client_id)
         return;
 
+    char line = 0;
+    int nxt_x, nxt_y;
+    char y_delta, x_delta;
+
+    // Find a polygon shape.
+    polygon* head = malloc(sizeof(polygon));
+    polygon* shape_ptr = head;
+    shape_ptr->x = p_client->head_loc.x;
+    shape_ptr->y = p_client->head_loc.y;
+    // This loop gets the whole conquering line.
+    while(1) {
+        if (shape_ptr->x+1 < COLS && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x+1, shape_ptr->y)]) == c_id) {
+            nxt_x = shape_ptr->x+1;
+            nxt_y = shape_ptr->y;
+        } else if (shape_ptr->x-1 >= 0 && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x-1, shape_ptr->y)]) == c_id) {
+            nxt_x = shape_ptr->x-1;
+            nxt_y = shape_ptr->y;
+        } else if (shape_ptr->y+1 < ROWS && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y+1)]) == c_id) {
+            nxt_x = shape_ptr->x;
+            nxt_y = shape_ptr->y+1;
+        } else if (shape_ptr->y-1 >= 0 && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y-1)]) == c_id) {
+            nxt_x = shape_ptr->x;
+            nxt_y = shape_ptr->y-1;
+        } else {
+            break;
+        }
+        shape_ptr->next = malloc(sizeof(polygon));
+        shape_ptr = shape_ptr->next;
+        shape_ptr->x = nxt_x;
+        shape_ptr->y = nxt_y;
+        shape_ptr->next = NULL;
+    }
+
+    // Connect to the first own plot so that you know the direction to converge.
+    if (shape_ptr->x+1 < COLS && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x+1, shape_ptr->y)]) == c_id) {
+        nxt_x = shape_ptr->x+1;
+        nxt_y = shape_ptr->y;
+    } else if (shape_ptr->x-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x-1, shape_ptr->y)]) == c_id) {
+        nxt_x = shape_ptr->x-1;
+        nxt_y = shape_ptr->y;
+    } else if (shape_ptr->y+1 < ROWS && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y+1)]) == c_id) {
+        nxt_x = shape_ptr->x;
+        nxt_y = shape_ptr->y+1;
+    } else if (shape_ptr->y-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y-1)]) == c_id) {
+        nxt_x = shape_ptr->x;
+        nxt_y = shape_ptr->y-1;
+    } else {
+        // Tail is not connected to any own plot. kill this client, and free the linked list.
+        client_dead(p_client);
+        delete_polygon(head);
+        return 1;
+    }
+
+    shape_ptr->next = malloc(sizeof(polygon));
+    shape_ptr = shape_ptr->next;
+    shape_ptr->x = nxt_x;
+    shape_ptr->y = nxt_y;
+    shape_ptr->next = NULL;
+
+    x_delta = ((nxt_x - head->x) > 0) ? -1 : 1;   // -1 is for LEFT and 1 is for RIGHT.
+    y_delta = ((nxt_y - head->y) > 0) ? -1 : 1;   // -1 is for UP and 1 is DOWN.
+
+    // Use some kind of path finding algorithm, to connecting the last owning plot to this.
+    while(1) {
+        if (X_IN_RANGE(shape_ptr->x + x_delta) && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x + x_delta, shape_ptr->y)]) == c_id) {
+        
+        } else if (Y_IN_RANGE(shape_ptr->y + y_delta) && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->y, shape_ptr->y + y_delta)]) == c_id) {
+        
+        } else {
+        
+        }
+    }
+
+    // Fill the polygon shape with own.
+    fill_polygon();
+
+    delete_polygon(head);
+    return 0;
+}
+
+inline void fill_polygon(polygon* head)
+{
+
+}
+
+inline void delete_polygon(polygon* poly)
+{
+    polygon* tmp;
+    while(poly != NULL) {
+        tmp = poly;
+        poly = poly->next;
+        free(tmp);
+    }
 }
 
 inline void update_positions(paper_client* p_client)
@@ -222,7 +321,10 @@ inline void update_positions(paper_client* p_client)
         return;
     /* Set conquering values */
     SET_CONQUERING(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)], c_id);
-    connect_estates(p_client); // This connects all the conquering and own based on some math.
+    
+    // This connects all the conquering and own based on some math.
+    if (connect_estates(p_client))
+        return;
 
     switch (p_client->direction) {
         case LEFT:
@@ -261,7 +363,7 @@ inline void update_positions(paper_client* p_client)
                 p_client->direction = LEFT;
             }
             break;
-        case DOWN:
+        default:
             if (p_client->movmnt == UP || p_client->movmnt == DOWN) {
                 p_client->head_loc.y++;
                 p_client->direction = DOWN;
@@ -272,7 +374,6 @@ inline void update_positions(paper_client* p_client)
                 p_client->head_loc.x--;
                 p_client->direction = LEFT;
             }
-        default:
     }
     if (p_client->head_loc.x < 0 || p_client->head_loc.x >= COLS ||
             p_client->head_loc.y < 0 || p_client->head_loc.y >= ROWS) {

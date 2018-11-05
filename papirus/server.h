@@ -21,6 +21,9 @@
 
 #define X_Y_TO_1D(x, y) (y * ROWS + x)
 
+#define X_IN_RANGE(x) ((x >= 0 && x < COLS) ? 1 : 0)
+#define Y_IN_RANGE(y) ((y >= 0 && y < ROWS) ? 1 : 0)
+
 // can never be over 15
 #define MAX_CLIENTS 8   // This is the max clients the server can let in if all the clients are below 7% or something.
 
@@ -31,10 +34,13 @@
 #define UNSET_LOCK(id)    (locker=-1)
 #define IS_SET_LOCK(id)   (locker==id)
 
-#define LEFT   0
-#define RIGHT  1
-#define UP     2
-#define DOWN   3
+#define UP 0
+#define LEFT 1
+#define DOWN 2
+#define RIGHT 3
+#define NONE 4
+
+#define OPPOSITE(dir) (((dir) < NONE) ? ((dir) ^ 2) : NONE)
 
 #define PORT 6969
 #define BUFFER_LEN 2048
@@ -49,6 +55,13 @@ typedef struct
 
 typedef struct
 {
+    int x, y;
+    polygon* next;
+}polygon;
+
+typedef struct
+{
+   char username[26];      /* The username of the client */
    char client_id;         /* Unique number for client. */
    vector head_loc;        /* vector for the head of the player. */
    vector scope;           /* The scope (visibility) of the client */
