@@ -12,6 +12,10 @@ static char locker = -1;
 char* estate;
 int main_socket;
 
+// TODO: Make this whole transformation to conquering struct happen.
+// TODO: Decide on how to send the data to the client.
+// TODO: Make the head_collision work so that the right people get killed.
+
 
 inline int make_new_space(vector* vec)
 {
@@ -88,10 +92,7 @@ void on_client_connect(struct sockaddr_in* client, const char* data, int len)
     p_client->movmnt = p_client->direction;
     strncpy(p_client->username, data + ptr, 25);
     p_client->username[25] = 0; // NULL Terminate it.
-    memcpy(p_client->io, client, sizeof(struct sockaddr_in));
-
-    // for sending it to the client when updating.
-    color_refs[client_id] = p_client->color;
+    memcpy(&p_client->io, client, sizeof(struct sockaddr_in));
 
     /* Code here to send the client with it's initial information */
 
@@ -109,9 +110,10 @@ void client_dead(paper_client* p_client)
 {
     // Unset the reference for the color.
     int client_id = p_client->client_id;
-    color_refs[client_id] = -1;
     p_client->client_id = -1;
     num_clients--;
+    LIST_remove(p_client->conq);    // Delete all the conquering references.
+    p_client->conq = LIST_new(20, free);    // Make a new list
     // free all client references in the estate.
     for (int i = 0; i < ROWS*COLS; i++) {
         if (GET_OWNS(estate[i]) == client_id)
@@ -133,6 +135,7 @@ void on_client_read(paper_client* p_client, const char* data, int len)
 
 inline void check_collisions(paper_client* p_client, int max)
 {
+    int x, y;
     // Dont kill that client if he's surrounded by his own plot.
     if (p_client->client_id == -1)
         return;
@@ -145,7 +148,10 @@ inline void check_collisions(paper_client* p_client, int max)
         if (clients[i].head_loc.x == p_client->head_loc.x &&
                 clients[i].head_loc.y == p_client->head_loc.y)
         {
-        
+            // The client will not be killed if it's surrounded by own in adjacent places.
+            x = p_client->head_loc.x;
+            y = p_client->head_loc.y;
+            if (GET_OWNS(estate[X_Y_TO_1D(x, y)]))
         }
     }
 }
@@ -161,7 +167,7 @@ void ticker(int signo)
 
 inline void send_visible(paper_client* p_client)
 {
-    // You'll have to check if the client is dead or not in here.
+    // NOTE: You have to do the while thing again, this isn't working.
     // When a client dies make sure to clean his stuff up.
     if (p_client->client_id == -1)
         return;
@@ -180,11 +186,16 @@ inline void send_visible(paper_client* p_client)
     char* to_send = malloc(p_client->scope.x * p_client->scope.y + 1 + MAX_CLIENTS + 6 * sizeof(int));
     char* visible_estate = 1 + to_send + MAX_CLIENTS + 6 * sizeof(int);
     int ptr_i = 0;
+    char clients_visible[MAX_CLIENTS] = {0};
 
     int idx = 0;
     for(int y = start_y; y < ROWS; y++) {
         for(int x = start_x; x < COLS; x++) {
-            visible_estate[idx++] = estate[(y * ROWS) + x]
+            visible_estate[idx] = estate[X_Y_TO_1D(x,y)];
+            // Set both the own and conq.. to the index and set it to 1.
+            // Then increment the idx for the next pointer.
+            clients_visible[GET_OWNS(visible_estate[idx])] = 1;
+            clients_visible[GET_CONQUERING(visible_estate[idx++])] = 1;
         }
     }
     if (COLS - start_x < p_client->scope.x) {
@@ -194,13 +205,16 @@ inline void send_visible(paper_client* p_client)
         y_after = p_client->scope.y - (ROWS - start_y);
     }
 
+/*
+*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+
+*| HEADER | NUM VISIBLE CLIENTS | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y | X_BEFORE | Y_BEFORE | X_AFTER | Y_AFTER |
+*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+
+*/
+
+
     // Add the header.
     to_send[0] = UPDATE_HDR;
     ptr_i += 1;
-
-    // copy the color references of each client.
-    memcpy(to_send + ptr_i, color_refs, MAX_CLIENTS);
-    ptr_i += MAX_CLIENTS;
 
     memcpy(to_send + ptr_i, &start_x, sizeof(int));
     ptr_i += sizeof(int);
@@ -215,6 +229,9 @@ inline void send_visible(paper_client* p_client)
     memcpy(to_send + ptr_i, &y_after, sizeof(int));
     ptr_i += sizeof(int);
 
+    // copy the color references of each client.
+    memcpy(to_send + ptr_i, color_refs, MAX_CLIENTS);
+
     send_to_client(p_client, UPDATE_HDR, to_send, ptr_i + idx);
 
     free(to_send);
@@ -227,114 +244,37 @@ char connect_estates(paper_client* p_client)
     if (GET_OWNS(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)]) != p_client->client_id)
         return;
 
-    char line = 0;
-    int nxt_x, nxt_y;
-    char y_delta, x_delta;
-
-    // Find a polygon shape.
-    polygon* head = malloc(sizeof(polygon));
-    polygon* shape_ptr = head;
-    shape_ptr->x = p_client->head_loc.x;
-    shape_ptr->y = p_client->head_loc.y;
-    // This loop gets the whole conquering line.
-    while(1) {
-        if (shape_ptr->x+1 < COLS && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x+1, shape_ptr->y)]) == c_id) {
-            nxt_x = shape_ptr->x+1;
-            nxt_y = shape_ptr->y;
-        } else if (shape_ptr->x-1 >= 0 && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x-1, shape_ptr->y)]) == c_id) {
-            nxt_x = shape_ptr->x-1;
-            nxt_y = shape_ptr->y;
-        } else if (shape_ptr->y+1 < ROWS && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y+1)]) == c_id) {
-            nxt_x = shape_ptr->x;
-            nxt_y = shape_ptr->y+1;
-        } else if (shape_ptr->y-1 >= 0 && GET_CONQUERING(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y-1)]) == c_id) {
-            nxt_x = shape_ptr->x;
-            nxt_y = shape_ptr->y-1;
-        } else {
-            break;
-        }
-        shape_ptr->next = malloc(sizeof(polygon));
-        shape_ptr = shape_ptr->next;
-        shape_ptr->x = nxt_x;
-        shape_ptr->y = nxt_y;
-        shape_ptr->next = NULL;
-    }
-
-    // Connect to the first own plot so that you know the direction to converge.
-    if (shape_ptr->x+1 < COLS && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x+1, shape_ptr->y)]) == c_id) {
-        nxt_x = shape_ptr->x+1;
-        nxt_y = shape_ptr->y;
-    } else if (shape_ptr->x-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x-1, shape_ptr->y)]) == c_id) {
-        nxt_x = shape_ptr->x-1;
-        nxt_y = shape_ptr->y;
-    } else if (shape_ptr->y+1 < ROWS && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y+1)]) == c_id) {
-        nxt_x = shape_ptr->x;
-        nxt_y = shape_ptr->y+1;
-    } else if (shape_ptr->y-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x, shape_ptr->y-1)]) == c_id) {
-        nxt_x = shape_ptr->x;
-        nxt_y = shape_ptr->y-1;
-    } else {
-        // Tail is not connected to any own plot. kill this client, and free the linked list.
-        client_dead(p_client);
-        delete_polygon(head);
-        return 1;
-    }
-
-    shape_ptr->next = malloc(sizeof(polygon));
-    shape_ptr = shape_ptr->next;
-    shape_ptr->x = nxt_x;
-    shape_ptr->y = nxt_y;
-    shape_ptr->next = NULL;
-
-    x_delta = ((nxt_x - head->x) > 0) ? -1 : 1;   // -1 is for LEFT and 1 is for RIGHT.
-    y_delta = ((nxt_y - head->y) > 0) ? -1 : 1;   // -1 is for UP and 1 is DOWN.
-
-    // Use some kind of path finding algorithm, to connecting the last owning plot to this.
-    while(1) {
-        if (X_IN_RANGE(shape_ptr->x + x_delta) && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->x + x_delta, shape_ptr->y)]) == c_id) {
-        
-        } else if (Y_IN_RANGE(shape_ptr->y + y_delta) && GET_OWNS(estate[X_Y_TO_1D(shape_ptr->y, shape_ptr->y + y_delta)]) == c_id) {
-        
-        } else {
-        
-        }
-    }
+    // You have to connect p_client->conq[-1] (last one) to p_client->conq[0] (first) through the own path.
 
     // Fill the polygon shape with own.
     fill_polygon();
 
-    delete_polygon(head);
     return 0;
 }
 
 inline void fill_polygon(polygon* head)
 {
-
-}
-
-inline void delete_polygon(polygon* poly)
-{
-    polygon* tmp;
-    while(poly != NULL) {
-        tmp = poly;
-        poly = poly->next;
-        free(tmp);
-    }
+    // There should be a function which will return you all the points to fill with own.
 }
 
 inline void update_positions(paper_client* p_client)
 {
     int c_id = p_client->client_id;
+    char moved = 0;
     /* Check if the client is being modified or if the struct is not used */
     if(c_id == -1 || IS_SET_LOCK(c_id))
         return;
     /* Set conquering values */
-    if (GET_OWNS())
+    // You can only conquer if the head's last tail is not in your own plot.
+    if (GET_OWNS(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)]) != c_id) {
         SET_CONQUERING(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)], c_id);
+        vector* new_vec = malloc(sizeof(vector));
+        new_vec->x = p_client->head_loc.x;
+        new_vec->y = p_client->head_loc.y;
+        LIST_insert(p_client->conq, new_vec);
+        moved = 1;
+    }
     
-    // This connects all the conquering and own based on some math.
-    if (connect_estates(p_client))
-        return;
 
     switch (p_client->direction) {
         case LEFT:
@@ -395,6 +335,11 @@ inline void update_positions(paper_client* p_client)
     if (!FREE_CONQUERING(GET_CONQUERING(X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y))))
         client_dead(&clients[GET_CONQUERING(X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y))]);
 
+    // This connects all the conquering and own based on some math.
+    // The code is not gonna run if the moved flag is not set.
+    if (moved && connect_estates(p_client))
+        return;
+
 }
 
 inline int create_server()
@@ -450,7 +395,7 @@ int main(int argc, char *argv[])
     // initialize with -1.
     memset(estate, -1, ROWS * COLS * sizeof(char));
     for (int i = 0; i < MAX_CLIENTS; i++)
-        color_refs[i] = -1;
+        clients[i].conq = LIST_new(20, free);
         clients[i].client_id = -1;
     }
 

@@ -4,6 +4,9 @@
 /* For the sockaddr_in struct */
 #include <sys/socket.h>
 
+// For the List struct ofc.
+#include "../utils/list.h"
+
 #define ROWS 1000
 #define COLS 1000
 
@@ -24,7 +27,7 @@
 #define X_IN_RANGE(x) ((x >= 0 && x < COLS) ? 1 : 0)
 #define Y_IN_RANGE(y) ((y >= 0 && y < ROWS) ? 1 : 0)
 
-// can never be over 15
+// can never be 15 or over
 #define MAX_CLIENTS 8   // This is the max clients the server can let in if all the clients are below 7% or something.
 
 /* Should be less than 1000 for timer reasons (change from usec to sec) */
@@ -61,6 +64,7 @@ typedef struct
 
 typedef struct
 {
+   LIST* conq;             /* The Conquering points for fast reference */
    char username[26];      /* The username of the client */
    char client_id;         /* Unique number for client. */
    vector head_loc;        /* vector for the head of the player. */
