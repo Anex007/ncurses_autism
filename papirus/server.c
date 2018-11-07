@@ -9,9 +9,6 @@
 static char num_clients;
 static paper_client clients[MAX_CLIENTS];
 static char locker = -1;
-char color_refs[MAX_CLIENTS];
-// char* conquering;
-// char* owns;
 char* estate;
 int main_socket;
 
@@ -62,9 +59,15 @@ inline int get_client_id()
 void on_client_connect(struct sockaddr_in* client, const char* data, int len)
 {
     vector vec;
+    int ptr = 0;
 #ifdef DEBUG_ON
     printf("[*] New client connected");
 #endif
+
+    // Data not enough.
+    if (len < (sizeof(int) + sizeof(int) + sizeof(char)))
+        return;
+
     if (num_clients >= MAX_CLIENTS || make_new_space(&vec)) {
         /* Code here to close the client (not the function) because the room is full */
     }
@@ -72,18 +75,18 @@ void on_client_connect(struct sockaddr_in* client, const char* data, int len)
 
     SET_LOCK(client_id);
 
-    srand(time(NULL));  /* Useful for rand() later */
-
     paper_client* p_client = &clients[client_id];
     p_client->client_id = client_id;
     p_client->head_loc.x = vec.x;
     p_client->head_loc.y = vec.y;
-    p_client->scope.x = ;
-    p_client->scope.y = ;    
+    memcpy(&p_client->scope.x, data, sizeof(int));
+    ptr += sizeof(int);
+    memcpy(&p_client->scope.y, data + ptr, sizeof(int));    
+    ptr += sizeof(int);
     p_client->color = rand() % MAX_CLIENTS;   /* Picks a random color */
     p_client->direction = rand() % 4;
     p_client->movmnt = p_client->direction;
-    strncpy(p_client->username, , 25);
+    strncpy(p_client->username, data + ptr, 25);
     p_client->username[25] = 0; // NULL Terminate it.
     memcpy(p_client->io, client, sizeof(struct sockaddr_in));
 
@@ -130,14 +133,20 @@ void on_client_read(paper_client* p_client, const char* data, int len)
 
 inline void check_collisions(paper_client* p_client, int max)
 {
+    // Dont kill that client if he's surrounded by his own plot.
     if (p_client->client_id == -1)
         return;
     for (int i = 0; i < max; i++) {
         if (clients[i].client_id == -1)
             continue;
+        // This clients head is in another head's plot.
+        // Kill the client that is not surrounded by his "OWN PLOT"
+        // Kill both of the clients if both of them are not surrounded.
         if (clients[i].head_loc.x == p_client->head_loc.x &&
                 clients[i].head_loc.y == p_client->head_loc.y)
-            client_dead(p_client);
+        {
+        
+        }
     }
 }
 
@@ -320,7 +329,8 @@ inline void update_positions(paper_client* p_client)
     if(c_id == -1 || IS_SET_LOCK(c_id))
         return;
     /* Set conquering values */
-    SET_CONQUERING(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)], c_id);
+    if (GET_OWNS())
+        SET_CONQUERING(estate[X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y)], c_id);
     
     // This connects all the conquering and own based on some math.
     if (connect_estates(p_client))
@@ -375,6 +385,7 @@ inline void update_positions(paper_client* p_client)
                 p_client->direction = LEFT;
             }
     }
+    // Over the boundary.
     if (p_client->head_loc.x < 0 || p_client->head_loc.x >= COLS ||
             p_client->head_loc.y < 0 || p_client->head_loc.y >= ROWS) {
         client_dead(p_client);
@@ -433,6 +444,7 @@ int main(int argc, char *argv[])
     struct itimerval timer;
     int s;
 
+    srand(time(NULL));  /* Useful for rand() later */
     estate = malloc(ROWS * COLS * sizeof(char));
 
     // initialize with -1.
