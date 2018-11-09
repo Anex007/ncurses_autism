@@ -136,6 +136,7 @@ void on_client_read(paper_client* p_client, const char* data, int len)
 inline void check_collisions(paper_client* p_client, int max)
 {
     int x, y;
+    paper_client* kill_client = NULL;
     // Dont kill that client if he's surrounded by his own plot.
     if (p_client->client_id == -1)
         return;
@@ -148,10 +149,15 @@ inline void check_collisions(paper_client* p_client, int max)
         if (clients[i].head_loc.x == p_client->head_loc.x &&
                 clients[i].head_loc.y == p_client->head_loc.y)
         {
-            // The client will not be killed if it's surrounded by own in adjacent places.
             x = p_client->head_loc.x;
             y = p_client->head_loc.y;
-            if (GET_OWNS(estate[X_Y_TO_1D(x, y)]))
+            // This wont work it can only kill 1 client at a time you need to kill both if it doesn't work out.
+            if (x-1 >= 0 && y-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(x-1, y)]) == p_client->client_id &&
+                    GET_OWNS(estate[X_Y_TO_1D(x, y-1)]) == p_client->client_id)
+                kill_client = &clients[i];
+            else if (x+1 < COLS && y-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(x+1, y-1)]) == p_client->client_id &&
+                    GET_OWNS(estate[X_Y_TO_1D(x+1, y-1)]) == p_client->client_id)
+                kill_client = &clients[i];
         }
     }
 }
@@ -183,10 +189,11 @@ inline void send_visible(paper_client* p_client)
         start_y = 0;
     }
 
-    char* to_send = malloc(p_client->scope.x * p_client->scope.y + 1 + MAX_CLIENTS + 6 * sizeof(int));
-    char* visible_estate = 1 + to_send + MAX_CLIENTS + 6 * sizeof(int);
+    char* to_send = malloc(p_client->scope.x * p_client->scope.y + 512);
+    char* visible_estate = malloc(p_client->scope.x * p_client->scope.y);
     int ptr_i = 0;
     char clients_visible[MAX_CLIENTS] = {0};
+    char num_visible_clients = 0;
 
     int idx = 0;
     for(int y = start_y; y < ROWS; y++) {
@@ -198,23 +205,34 @@ inline void send_visible(paper_client* p_client)
             clients_visible[GET_CONQUERING(visible_estate[idx++])] = 1;
         }
     }
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        // Increment the number for the header.
+        if (clients_visible[i]) {
+            memcpy(
+            num_visible_clients++;
+        }
+    }
+
     if (COLS - start_x < p_client->scope.x) {
         x_after = p_client->scope.x - (COLS - start_x);
     }
+
     if (ROWS - start_y < p_client->scope.y) {
         y_after = p_client->scope.y - (ROWS - start_y);
     }
 
 /*
-*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+
-*| HEADER | NUM VISIBLE CLIENTS | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y | X_BEFORE | Y_BEFORE | X_AFTER | Y_AFTER |
-*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+
+*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+--------------+
+*| HEADER | NUM VISIBLE CLIENTS | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y | X_BEFORE | Y_BEFORE | X_AFTER | Y_AFTER | VISIBLE_DATA |
+*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+--------------+
 */
 
 
     // Add the header.
     to_send[0] = UPDATE_HDR;
-    ptr_i += 1;
+    to_send[1] = num_visible_clients;
+    ptr_i += 2;
 
     memcpy(to_send + ptr_i, &start_x, sizeof(int));
     ptr_i += sizeof(int);
@@ -228,9 +246,6 @@ inline void send_visible(paper_client* p_client)
     ptr_i += sizeof(int);
     memcpy(to_send + ptr_i, &y_after, sizeof(int));
     ptr_i += sizeof(int);
-
-    // copy the color references of each client.
-    memcpy(to_send + ptr_i, color_refs, MAX_CLIENTS);
 
     send_to_client(p_client, UPDATE_HDR, to_send, ptr_i + idx);
 
