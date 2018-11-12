@@ -43,6 +43,24 @@ void LIST_set(LIST* list, int index, void* item)
    }
 }
 
+void LIST_remove_item(LIST* list, void* item)
+{
+    for (int index = 0; index < LIST_SIZE(list); index++) {
+        if (item == list->items[index]) {
+
+            if(list->destroy)
+                list->destroy(list->items[index]);
+
+            list->items[index] = NULL;
+            for (int i = index; i < LIST_SIZE(list)-1; i++)
+                v->items[i] = v->items[i+1];
+            list->items[list->size--] = NULL;
+
+            return;
+        }
+    }
+}
+
 void LIST_remove(LIST* list, int index)
 {
    if(index < 0 || index >= LIST_SIZE(list))
@@ -52,13 +70,12 @@ void LIST_remove(LIST* list, int index)
       list->destroy(list->items[index]);
 
    list->items[index] = NULL;
-   for (int i = index; i < LIST_SIZE(list)-1; i++) {
+   for (int i = index; i < LIST_SIZE(list)-1; i++)
        v->items[i] = v->items[i+1];
-   }
    list->items[list->size--] = NULL;
 }
 
-void* LIST_get(LIST* list, int index)
+inline void* LIST_get(LIST* list, int index)
 {
    if(index >= 0 && index < LIST_SIZE(list))
        return list->items[index];

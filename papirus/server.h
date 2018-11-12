@@ -14,9 +14,9 @@
 #define MIN_COL 13
 
 #define GET_OWNS(x) (x & 0xf)
-#define SET_OWNS(var, id) (var = id & 0xf)
+#define SET_OWNS(var, id) (var |= id & 0xf)
 #define GET_CONQUERING(x) (x >> 4)
-#define SET_CONQUERING(var, id) (var = id >> 4)
+#define SET_CONQUERING(var, id) (var |= id >> 4)
 
 #define FREE_OWN(x) (x & 0xf)
 #define FREE_CONQUERING(x) (x & 0xf0)
@@ -50,6 +50,7 @@
 
 #define INIT_HDR    0
 #define UPDATE_HDR  1
+#define END_HDR     2
 
 typedef struct
 {
@@ -59,11 +60,12 @@ typedef struct
 typedef struct
 {
     int x, y;
-    polygon* next;
-}polygon;
+    float f, g, h;
+}node;
 
 typedef struct
 {
+   int num_owns;           /* The number of the plot owned */
    LIST* conq;             /* The Conquering points for fast reference */
    char username[26];      /* The username of the client */
    char client_id;         /* Unique number for client. */

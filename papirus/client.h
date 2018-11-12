@@ -28,6 +28,7 @@
 
 #define INIT_HDR    0
 #define UPDATE_HDR  1
+#define END_HDR     2
 
 #define MAX_CLIENTS 8
 
