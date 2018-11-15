@@ -212,6 +212,14 @@ void ticker(int signo)
         update_positions(&clients[i]); // Updates head values of the client.
         check_collisions(&clients[i], i);
         send_visible(&clients[i]);
+        clients[i].num_owns = 0;    // Reset every client to zero to get ready for the next loop.
+    }
+    // TODO: Recalculate the owned plot for this client.
+
+    for(int idx = 0; idx < ROWS*COLS; idx++) {
+        char c = GET_OWNS(estate[idx]);
+        if (c != -1)
+            clients[i].num_owns++;
     }
 }
 
@@ -328,8 +336,6 @@ char connect_estates(paper_client* p_client)
     // Fill the polygon shape with own.
     fill_polygon(path);
 
-    // TODO: Recalculate the owned plot for this client.
-
     LIST_destroy(path)
     return 0;
 }
@@ -339,10 +345,17 @@ inline float heuristic(node* a, node* b)
     return fabsf(a->x - b->x) + fabsf(a->y - b->y);
 }
 
-// @TODO
+// @FIXME: The f, g and h scores are not initialized when we check it!!!!!
 inline node* get_lowest_f(LIST* set)
 {
-
+    int lowest_i = 0;
+    for(int i = 0; i < LIST_SIZE(set); i++) {
+        node* this = (node*)set->items[i];
+        node* other = (node*)set->items[lowest_i];
+        if (this->f < other->f)
+            lowest_i = i;
+    }
+    return (node*)(set->items[lowest_i]);
 }
 
 inline node* copy_node(node* from)
@@ -352,10 +365,44 @@ inline node* copy_node(node* from)
     return this;
 }
 
-node* get_neighbors(node* this)
+node* get_neighbors(node* this, int* num_neighbors)
 {
     node* neighbors = malloc(sizeof(node) * 4);
-
+    int idx = 0;
+    register node* neighbor;
+    if (this->y > 0) { // UP
+        neighbor = neighbors[idx];
+        neighbor.x = this->x;
+        neighbor.y = this->y-1;
+        neighbor.f = neighbor.g + neighbor.h
+        /* Other stuff with f, g, h*/
+        idx++;
+    }
+    if (this->y < ROWS-1) { // DOWN
+        neighbor = neighbors[idx];
+        neighbor.x = this->x;
+        neighbor.y = this->y+1;
+        neighbor.f = neighbor.g + neighbor.h
+        /* Other stuff with f, g, h*/
+        idx++;
+    }
+    if (this->x > 0) { // LEFT
+        neighbor = neighbors[idx];
+        neighbor.x = this->x-1;
+        neighbor.y = this->y;
+        neighbor.f = neighbor.g + neighbor.h
+        /* Other stuff with f, g, h*/
+        idx++;
+    }
+    if (this->y < COLS-1) { // RIGHT
+        neighbor = neighbors[idx];
+        neighbor.x = this->x+1;
+        neighbor.y = this->y;
+        neighbor.f = neighbor.g + neighbor.h
+        /* Other stuff with f, g, h*/
+        idx++;
+    }
+    *num_neighbors = idx;
     return node;
 }
 
@@ -392,7 +439,8 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
     while(LIST_SIZE(openSet) > 0) {
         register node* current = get_lowest_f(openSet);
         if (current->x == end->x && current->y == end->y) {
-            // We found the path, now backtrack and return
+            // @TODO:
+            //      We found the path, now backtrack and return
             LIST_destroy(closedSet);
             LIST_destroy(openSet);
         }
@@ -400,9 +448,10 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
         LIST_insert(closedSet, copy_node(current));
         LIST_remove_item(openSet, current);
 
-        node* neighbors = get_neighbors(current);
+        int num_neighbors;
+        node* neighbors = get_neighbors(current, &num_neighbors);
         register node* neighbor;
-        for (int i = 0; i < LIST_SIZE(neighbors); i++) {
+        for (int i = 0; i < num_neighbors; i++) {
             neighbor = neighbors[i];
 
             // ignore if it's already done.
