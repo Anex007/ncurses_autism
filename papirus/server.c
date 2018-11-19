@@ -10,11 +10,11 @@
 static char num_clients;
 static paper_client clients[MAX_CLIENTS];
 static char locker = -1;
+static int num_of_owns[MAX_CLIENTS];
 char* estate;
 int main_socket;
 
 // TODO: Make the actual path finding algorithm
-// TODO: Make the server send the stats for every client.
 
 
 inline int make_new_space(vector* vec)
@@ -208,13 +208,17 @@ inline char surrounded(paper_client* p_client)
 
 void ticker(int signo)
 {
+    for (int i = 0; i < MAX_CLIENTS; i++)
+        num_of_owns[i] = clients[i].num_owns;
+
     for (int i = 0; i < MAX_CLIENTS; i++) {
         update_positions(&clients[i]); // Updates head values of the client.
         check_collisions(&clients[i], i);
         send_visible(&clients[i]);
         clients[i].num_owns = 0;    // Reset every client to zero to get ready for the next loop.
     }
-    // TODO: Recalculate the owned plot for this client.
+
+    // TODO: Recalculate the owned plot for all clients.
 
     for(int idx = 0; idx < ROWS*COLS; idx++) {
         char c = GET_OWNS(estate[idx]);
@@ -260,6 +264,8 @@ inline void send_visible(paper_client* p_client)
 
     // Increment so that we can start filling in client data.
     ptr_i += 2;
+    memcpy(to_send + ptr_i, num_of_owns, sizeof(num_of_owns));
+    ptr_i += sizeof(num_of_owns);
     for (int i = 0; i < MAX_CLIENTS; i++) {
         // Increment the number for the header.
         if (clients_visible[i]) {
@@ -280,9 +286,9 @@ inline void send_visible(paper_client* p_client)
     }
 
 /*
-*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+--------------+
-*| HEADER | NUM VISIBLE CLIENTS | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y | X_BEFORE | Y_BEFORE | X_AFTER | Y_AFTER | VISIBLE_DATA |
-*+--------+---------------------+-------------------+---------+------+---------+---------+----------+----------+---------+---------+--------------+
+*+--------+---------------------+-----------+-------------------+---------+------+---------+---------+----------+---------+---------+---------+--------------+
+*| HEADER | NUM VISIBLE CLIENTS | NUM_OWNS  | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y | X_BEFORE |Y_BEFORE | X_AFTER | Y_AFTER | VISIBLE_DATA |
+*+--------+---------------------+-----------+-------------------+---------+------+---------+---------+----------+---------+---------+---------+--------------+
 */
 
 
@@ -365,41 +371,59 @@ inline node* copy_node(node* from)
     return this;
 }
 
-node* get_neighbors(node* this, int* num_neighbors)
+node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
 {
-    node* neighbors = malloc(sizeof(node) * 4);
+    node** neighbors = malloc(sizeof(node*) * 4);
     int idx = 0;
+    int x = this->x, y = this->y;
     register node* neighbor;
-    if (this->y > 0) { // UP
-        neighbor = neighbors[idx];
-        neighbor.x = this->x;
-        neighbor.y = this->y-1;
-        neighbor.f = neighbor.g + neighbor.h
-        /* Other stuff with f, g, h*/
+    if (y > 0) { // UP
+        if (every_nodes[X_Y_TO_1D(x, y-1)] == NULL) {
+            // allocate and give the pointer.
+            neighbor = malloc(sizeof(node));
+            neighbor.x = x;
+            neighbor.y = y-1;
+            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbors[idx] = neighbor;
+            every_nodes[X_Y_TO_1D(x, y-1)] = neighbor;
+        } else
+            neighbors[idx] = every_nodes[X_Y_TO_1D(x, y-1)];
         idx++;
     }
-    if (this->y < ROWS-1) { // DOWN
-        neighbor = neighbors[idx];
-        neighbor.x = this->x;
-        neighbor.y = this->y+1;
-        neighbor.f = neighbor.g + neighbor.h
-        /* Other stuff with f, g, h*/
+    if (y < ROWS-1) { // DOWN
+        if (every_nodes[X_Y_TO_1D(x,y+1)] == NULL) {
+            neighbor = malloc(sizeof(node));
+            neighbor.x = x;
+            neighbor.y = y+1;
+            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbors[idx] = neighbor;
+            every_nodes[X_Y_TO_1D(x, y+1)] = neighbor;
+        } else 
+            neighbors[idx] = every_nodes[X_Y_TO_1D(x, y+1)];
         idx++;
     }
-    if (this->x > 0) { // LEFT
-        neighbor = neighbors[idx];
-        neighbor.x = this->x-1;
-        neighbor.y = this->y;
-        neighbor.f = neighbor.g + neighbor.h
-        /* Other stuff with f, g, h*/
+    if (x > 0) { // LEFT
+        if (every_nodes[X_Y_TO_1D(x-1, y)] == NULL) {
+            neighbor = malloc(sizeof(node));
+            neighbor.x = x-1;
+            neighbor.y = y;
+            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbors[idx] = neighbor;
+            every_nodes[X_Y_TO_1D(x-1, y)] = neighbor;
+        } else 
+            neighbors[idx] = every_nodes[X_Y_TO_1D(x-1, y)];
         idx++;
     }
-    if (this->y < COLS-1) { // RIGHT
-        neighbor = neighbors[idx];
-        neighbor.x = this->x+1;
-        neighbor.y = this->y;
-        neighbor.f = neighbor.g + neighbor.h
-        /* Other stuff with f, g, h*/
+    if (x < COLS-1) { // RIGHT
+        if (every_nodes[X_Y_TO_1D(x+1, y)] == NULL) {
+            neighbor = malloc(sizeof(node));
+            neighbor.x = x+1;
+            neighbor.y = y;
+            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbors[idx] = neighbor;
+            every_nodes[X_Y_TO_1D(x+1, y)] = neighbor;
+        } else 
+            neighbors[idx] = every_nodes[X_Y_TO_1D(x+1, y)];
         idx++;
     }
     *num_neighbors = idx;
@@ -410,15 +434,18 @@ int node_in(node* this, LIST* set)
 {
     node* other;
     for (int i = 0; i < LIST_SIZE(set); i++) {
-        other = set->items[i];
-        if (this->x == other->x && this->y == other->y)
+        if (this == set->items[i])
             return 1;
     }
     return 0;
 }
 
+// Just declare a grid with all the possible neighbouring values from end and start
+// This is crucial to preserve the f,g and h values.
 LIST* A_star_path(vector* _start, vector* _end, char client_id)
 {
+    node** every_nodes = calloc(ROWS*COLS, sizeof(node*));
+
     node* start = malloc(sizeof(node));
     start->x = _start->x;
     start->y = _start->y;
@@ -429,10 +456,10 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
     end->y = _end->y;
 
 
-    LIST* closedSet = LIST_new(20, free);
-    LIST* openSet = LIST_new(20, free);
+    LIST* closedSet = LIST_new(20, NULL);
+    LIST* openSet = LIST_new(20, NULL);
     LIST_insert(openSet, start);
-    LIST* cameFrom = LIST_new(20, free);
+    LIST* cameFrom = LIST_new(20, NULL);
 
     start->f = heuristic(start, end);
 
@@ -443,13 +470,16 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
             //      We found the path, now backtrack and return
             LIST_destroy(closedSet);
             LIST_destroy(openSet);
+            // TODO: Delete each element in every_nodes here
+            free(every_nodes);
+            LIST_destroy(cameFrom);
         }
 
-        LIST_insert(closedSet, copy_node(current));
+        LIST_insert(closedSet, current);
         LIST_remove_item(openSet, current);
 
         int num_neighbors;
-        node* neighbors = get_neighbors(current, &num_neighbors);
+        node** neighbors = get_neighbors(current, every_nodes, &num_neighbors);
         register node* neighbor;
         for (int i = 0; i < num_neighbors; i++) {
             neighbor = neighbors[i];
@@ -460,14 +490,23 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
 
             float tentative_gScore = current->g + 1;    // We're only going horiz, vertically.
 
+            /*
             if (!node_in(neighbor, openSet))
                 LIST_insert(openSet, copy_node(neighbor));
             else if (tentative_gScore >= neighbor->g)
                 continue;
+                */
+            if (node_in(neighbor, openSet))
+                if (tentative_gScore < neighbor->g)
+                    neighbor->g = tentative_gScore;
+            else {
+                neighbor->g = tentative_gScore;
+                LIST_insert(openSet, neighbor);
+            }
 
-            LIST_insert(cameFrom, copy_node(current));  // FIXME: NOTE SURE
-            neighbor->g = tentative_gScore;
-            neighbor->f = tentative_gScore + heuristic(neighbor, end);
+            LIST_insert(cameFrom, current);  // FIXME: NOTE SURE
+            neighbor->h = heuristic(neighbor, end);
+            neighbor->f = neighbor->g + neighbor->h;
         }
 
         free(neighbors);
@@ -477,6 +516,7 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
     LIST_destroy(closedSet);
     LIST_destroy(openSet);
     LIST_destroy(cameFrom);
+    free(every_nodes);
     return NULL;
 }
 
