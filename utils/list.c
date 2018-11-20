@@ -53,7 +53,7 @@ void LIST_remove_item(LIST* list, void* item)
 
             list->items[index] = NULL;
             for (int i = index; i < LIST_SIZE(list)-1; i++)
-                v->items[i] = v->items[i+1];
+                list->items[i] = list->items[i+1];
             list->items[list->size--] = NULL;
 
             return;
@@ -71,7 +71,7 @@ void LIST_remove(LIST* list, int index)
 
    list->items[index] = NULL;
    for (int i = index; i < LIST_SIZE(list)-1; i++)
-       v->items[i] = v->items[i+1];
+       list->items[i] = list->items[i+1];
    list->items[list->size--] = NULL;
 }
 

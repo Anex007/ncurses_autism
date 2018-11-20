@@ -22,7 +22,7 @@
 #define FREE_CONQUERING(x) (x & 0xf0)
 #define FREE_ESTATE(x) (x == -1)
 
-#define X_Y_TO_1D(x, y) (y * ROWS + x)
+#define X_Y_TO_1D(x, y) ((y) * COLS + (x))
 
 #define X_IN_RANGE(x) ((x >= 0 && x < COLS) ? 1 : 0)
 #define Y_IN_RANGE(y) ((y >= 0 && y < ROWS) ? 1 : 0)

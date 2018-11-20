@@ -1,6 +1,8 @@
 #ifndef LIST_IMP_CHAD
 #define LIST_IMP_CHAD
 
+#include <stdbool.h>
+
 typedef void (*destroy_cb)(void* data);
 typedef int (*match_cb)(void* to_find, const void* item);
 typedef void (*item_cb)(int index, const void* item, void* parameter);
