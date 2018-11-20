@@ -459,7 +459,7 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
     LIST* closedSet = LIST_new(20, NULL);
     LIST* openSet = LIST_new(20, NULL);
     LIST_insert(openSet, start);
-    LIST* cameFrom = LIST_new(20, NULL);
+    LIST* cameFrom = LIST_new(20, free);
 
     start->f = heuristic(start, end);
 
@@ -471,8 +471,13 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
             LIST_destroy(closedSet);
             LIST_destroy(openSet);
             // TODO: Delete each element in every_nodes here
+            for (int i = 0; i < ROWS*COLS; i++)
+                if(every_nodes[i] != NULL)
+                    free(every_node[i]);
             free(every_nodes);
-            LIST_destroy(cameFrom);
+            free(start);
+            free(end);
+            return cameFrom;
         }
 
         LIST_insert(closedSet, current);
@@ -490,12 +495,11 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
 
             float tentative_gScore = current->g + 1;    // We're only going horiz, vertically.
 
-            /*
             if (!node_in(neighbor, openSet))
                 LIST_insert(openSet, copy_node(neighbor));
             else if (tentative_gScore >= neighbor->g)
                 continue;
-                */
+            /*
             if (node_in(neighbor, openSet))
                 if (tentative_gScore < neighbor->g)
                     neighbor->g = tentative_gScore;
@@ -503,8 +507,10 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
                 neighbor->g = tentative_gScore;
                 LIST_insert(openSet, neighbor);
             }
+            */
 
-            LIST_insert(cameFrom, current);  // FIXME: NOTE SURE
+            LIST_insert(cameFrom, copy_node(current));  // FIXME: NOTE SURE
+            neighbor->g = tentative_gScore;
             neighbor->h = heuristic(neighbor, end);
             neighbor->f = neighbor->g + neighbor->h;
         }
@@ -513,9 +519,14 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
     }
 
     // No Solution.
+    free(start);
+    free(end);
     LIST_destroy(closedSet);
     LIST_destroy(openSet);
     LIST_destroy(cameFrom);
+    for (int i = 0; i < ROWS*COLS; i++)
+        if(every_nodes[i] != NULL)
+            free(every_node[i]);
     free(every_nodes);
     return NULL;
 }
