@@ -24,5 +24,6 @@ void LIST_remove(LIST* list, int index);
 void LIST_set(LIST* list, int index, void* item);
 bool LIST_insert(LIST* list, void* member);
 LIST* LIST_new(int start_size, destroy_cb cb);
+void LIST_remove_item(LIST* list, void* item);
 
 #endif /* ifndef LIST_IMP_CHAD */

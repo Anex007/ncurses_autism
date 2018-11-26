@@ -1,14 +1,14 @@
 #ifndef PAPER_CLIENT
 #define PAPER_CLIENT
 
-#define COLOR_0 0   /* Red */
 #define COLOR_1 1   /* Green */
 #define COLOR_2 2   /* Yellow */
 #define COLOR_3 3   /* Blue */
 #define COLOR_4 4   /* Magenta */
 #define COLOR_5 5   /* Cyan */
 #define COLOR_6 6   /* White */
-#define COLOR_7 7   /* PI */
+#define COLOR_7 7   /* Red */
+#define COLOR_8 8   /* PI */
 /* Add more colors here (using background stuff) if you change the 8 */
 
 #define UP 0
@@ -34,6 +34,12 @@
 
 #define SERVER_PORT 6969
 #define SERVER_IP "127.0.0.1"
+
+typedef struct
+{
+    char color;
+    char username[26];
+}vis_client;
 
 int connect_to_server(void);
 

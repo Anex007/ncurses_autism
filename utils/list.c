@@ -25,7 +25,7 @@ bool LIST_insert(LIST* list, void* member)
    if(list->size >= list->capacity)
    {
       list->capacity *= 2;
-      list->items = reallocarray(list->items, list->capacity, sizeof(void*));
+      list->items = realloc(list->items, list->capacity * sizeof(void*));
       if(!list->items)
           return false;
    }

@@ -4,8 +4,12 @@
 #include <stdio.h>
 #include <signal.h>
 #include <math.h>
-#include <sys/time.h>
+#include <time.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+// @TODO: If a client doesnt update within 10 Ticks kill that client.
 
 static char num_clients;
 static paper_client clients[MAX_CLIENTS];
@@ -13,9 +17,6 @@ static char locker = -1;
 static int num_of_owns[MAX_CLIENTS];
 char* estate;
 int main_socket;
-
-// TODO: Make the actual path finding algorithm
-
 
 inline int make_new_space(vector* vec)
 {
@@ -127,12 +128,14 @@ inline int send_to_client(struct sockaddr_in* client, const void* data, int len)
 
 void client_dead(paper_client* p_client)
 {
+    // TODO: Firgure out how to delete the io reference of the client
     // Unset the reference for the color.
     int client_id = p_client->client_id;
     p_client->client_id = -1;
     num_clients--;
-    LIST_remove(p_client->conq);    // Delete all the conquering references.
+    LIST_destroy(p_client->conq);    // Delete all the conquering references.
     p_client->conq = LIST_new(20, free);    // Make a new list
+    memset(p_client->username, 0, 26);
     // free all client references in the estate.
     for (int i = 0; i < ROWS*COLS; i++) {
         if (GET_OWNS(estate[i]) == client_id)
@@ -154,7 +157,6 @@ void on_client_read(paper_client* p_client, const char* data, int len)
 
 inline void check_collisions(paper_client* p_client, int max)
 {
-    int x, y;
     char killed_flg = 0;
     if (p_client->client_id == -1)
         return;
@@ -188,8 +190,8 @@ inline void check_collisions(paper_client* p_client, int max)
 
 inline char surrounded(paper_client* p_client)
 {
-    x = p_client->head_loc.x;
-    y = p_client->head_loc.y;
+    int x = p_client->head_loc.x;
+    int y = p_client->head_loc.y;
     if (x-1 >= 0 && y-1 >= 0 && GET_OWNS(estate[X_Y_TO_1D(x-1, y)]) == p_client->client_id &&
             GET_OWNS(estate[X_Y_TO_1D(x, y-1)]) == p_client->client_id)
         return 1;
@@ -218,12 +220,10 @@ void ticker(int signo)
         clients[i].num_owns = 0;    // Reset every client to zero to get ready for the next loop.
     }
 
-    // TODO: Recalculate the owned plot for all clients.
-
     for(int idx = 0; idx < ROWS*COLS; idx++) {
         char c = GET_OWNS(estate[idx]);
         if (c != -1)
-            clients[i].num_owns++;
+            clients[c].num_owns++;
     }
 }
 
@@ -233,6 +233,7 @@ inline void send_visible(paper_client* p_client)
     if (p_client->client_id == -1)
         return;
     int start_x, start_y, x_before = 0, y_before = 0, x_after = 0, y_after = 0;
+    int stop_x = start_x + p_client->scope.x, stop_y = start_y + p_client->scope.y;
     start_x = p_client->head_loc.x - (p_client->scope.x / 2);
     start_y = p_client->head_loc.y - (p_client->scope.y / 2);
     if (start_x < 0) {
@@ -249,11 +250,10 @@ inline void send_visible(paper_client* p_client)
     size_t ptr_i = 0;
     char clients_visible[MAX_CLIENTS] = {0};
     char num_visible_clients = 0;
-    size_t len_str;
 
     size_t idx = 0;
-    for(int y = start_y; y < ROWS; y++) {
-        for(int x = start_x; x < COLS; x++) {
+    for(int y = start_y; y < stop_y; y++) {
+        for(int x = start_x; x < stop_x; x++) {
             visible_estate[idx] = estate[X_Y_TO_1D(x,y)];
             // Set both the own and conq.. to the index and set it to 1.
             // Then increment the idx for the next pointer.
@@ -269,10 +269,11 @@ inline void send_visible(paper_client* p_client)
     for (int i = 0; i < MAX_CLIENTS; i++) {
         // Increment the number for the header.
         if (clients_visible[i]) {
+            to_send[ptr_i++] = i;
             to_send[ptr_i++] = clients[i].color;
-            len_str = strnlen(clients[i].username, 25);
-            memcpy(to_send + ptr_i, clients[i].username, len_str);
-            ptr_i += len_str;
+            // len_str = strnlen(clients[i].username, 25);
+            memcpy(to_send + ptr_i, clients[i].username, 26);
+            ptr_i += 26;
             num_visible_clients++;
         }
     }
@@ -284,14 +285,11 @@ inline void send_visible(paper_client* p_client)
     if (ROWS - start_y < p_client->scope.y) {
         y_after = p_client->scope.y - (ROWS - start_y);
     }
-
 /*
-*+--------+---------------------+-----------+-------------------+---------+------+---------+---------+----------+---------+---------+---------+--------------+
-*| HEADER | NUM VISIBLE CLIENTS | NUM_OWNS  | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y | X_BEFORE |Y_BEFORE | X_AFTER | Y_AFTER | VISIBLE_DATA |
-*+--------+---------------------+-----------+-------------------+---------+------+---------+---------+----------+---------+---------+---------+--------------+
+*+--------+---------------------+-----------+-----------+-------------------+---------+------+---------+----------+---------+---------+---------+--------------+
+*| HEADER | NUM VISIBLE CLIENTS | NUM_OWNS  | CLIENT ID | COLOR OF CLIENT 0 | NAME\00 | .... | START_X | START_Y  |X_BEFORE |Y_BEFORE | X_AFTER | Y_AFTER | VISIBLE_DATA |
+*+--------+---------------------+-----------+-----------+-------------------+---------+------+---------+----------+---------+---------+---------+--------------+
 */
-
-
     // Add the header.
     to_send[0] = UPDATE_HDR;
     to_send[1] = num_visible_clients;
@@ -312,13 +310,13 @@ inline void send_visible(paper_client* p_client)
     // Copy the actual visible data onto here.
     memcpy(to_send + ptr_i, visible_estate, idx);
 
-    send_to_client(&p_client->io, UPDATE_HDR, to_send, ptr_i + idx);
+    send_to_client(&p_client->io, to_send, ptr_i + idx);
 
     free(to_send);
     free(visible_estate);
 }
 
-char connect_estates(paper_client* p_client)
+void connect_estates(paper_client* p_client)
 {
     char c_id = p_client->client_id;
     // If the plot is not owned by the client dont do anything.
@@ -336,14 +334,31 @@ char connect_estates(paper_client* p_client)
             vector* vec = p_client->conq->items[i]; // I'm directly accessing the struct.
             SET_OWNS(estate[X_Y_TO_1D(vec->x, vec->y)], c_id);
         }
-        return 0;
+        LIST_destroy(p_client->conq);
+        p_client->conq = LIST_new(20, free);    // Reinitalize the List.
+        return;
     }
 
-    // Fill the polygon shape with own.
-    fill_polygon(path);
+    // Append to p_client->conq
+    for (int i = LIST_SIZE(path)-1; i >= 0; i--) {
+        vector* copy = malloc(sizeof(vector));
+        vector* orig = path->items[i];
+        memcpy(copy, orig, sizeof(vector));
+        LIST_remove(path, i);               // Remove it from the list.
+        LIST_insert(p_client->conq, copy);  // Add it to the new list.
+    }
+    LIST_destroy(path);
 
-    LIST_destroy(path)
-    return 0;
+    // Fill the polygon shape with own.
+    if (fill_polygon(p_client->conq, c_id) == -1) {
+        // TODO: Destroy client here
+        client_dead(p_client);
+    }
+
+    // Reinitialize the List.
+    LIST_destroy(p_client->conq);
+    p_client->conq = LIST_new(20, free);
+    return;
 }
 
 inline float heuristic(node* a, node* b)
@@ -364,14 +379,15 @@ inline node* get_lowest_f(LIST* set)
     return (node*)(set->items[lowest_i]);
 }
 
-inline node* copy_node(node* from)
+inline vector* copy_node(node* from)
 {
-    node* this = malloc(sizeof(node));
-    memcpy(this, from, sizeof(node));
+    vector* this = malloc(sizeof(vector));
+    this->x = from->x;
+    this->y = from->y;
     return this;
 }
 
-node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
+node** get_neighbors(node* this, node** every_nodes, int* num_neighbors)
 {
     node** neighbors = malloc(sizeof(node*) * 4);
     int idx = 0;
@@ -381,9 +397,9 @@ node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
         if (every_nodes[X_Y_TO_1D(x, y-1)] == NULL) {
             // allocate and give the pointer.
             neighbor = malloc(sizeof(node));
-            neighbor.x = x;
-            neighbor.y = y-1;
-            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbor->x = x;
+            neighbor->y = y-1;
+            neighbor->f = neighbor->g = neighbor->h = 0;
             neighbors[idx] = neighbor;
             every_nodes[X_Y_TO_1D(x, y-1)] = neighbor;
         } else
@@ -393,9 +409,9 @@ node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
     if (y < ROWS-1) { // DOWN
         if (every_nodes[X_Y_TO_1D(x,y+1)] == NULL) {
             neighbor = malloc(sizeof(node));
-            neighbor.x = x;
-            neighbor.y = y+1;
-            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbor->x = x;
+            neighbor->y = y+1;
+            neighbor->f = neighbor->g = neighbor->h = 0;
             neighbors[idx] = neighbor;
             every_nodes[X_Y_TO_1D(x, y+1)] = neighbor;
         } else 
@@ -405,9 +421,9 @@ node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
     if (x > 0) { // LEFT
         if (every_nodes[X_Y_TO_1D(x-1, y)] == NULL) {
             neighbor = malloc(sizeof(node));
-            neighbor.x = x-1;
-            neighbor.y = y;
-            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbor->x = x-1;
+            neighbor->y = y;
+            neighbor->f = neighbor->g = neighbor->h = 0;
             neighbors[idx] = neighbor;
             every_nodes[X_Y_TO_1D(x-1, y)] = neighbor;
         } else 
@@ -417,9 +433,9 @@ node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
     if (x < COLS-1) { // RIGHT
         if (every_nodes[X_Y_TO_1D(x+1, y)] == NULL) {
             neighbor = malloc(sizeof(node));
-            neighbor.x = x+1;
-            neighbor.y = y;
-            neighbor.f = neighbor.g = neighbor.h = 0;
+            neighbor->x = x+1;
+            neighbor->y = y;
+            neighbor->f = neighbor->g = neighbor->h = 0;
             neighbors[idx] = neighbor;
             every_nodes[X_Y_TO_1D(x+1, y)] = neighbor;
         } else 
@@ -427,12 +443,11 @@ node* get_neighbors(node* this, node** every_nodes, int* num_neighbors)
         idx++;
     }
     *num_neighbors = idx;
-    return node;
+    return neighbors;
 }
 
-int node_in(node* this, LIST* set)
+inline char node_in(node* this, LIST* set)
 {
-    node* other;
     for (int i = 0; i < LIST_SIZE(set); i++) {
         if (this == set->items[i])
             return 1;
@@ -442,7 +457,7 @@ int node_in(node* this, LIST* set)
 
 // Just declare a grid with all the possible neighbouring values from end and start
 // This is crucial to preserve the f,g and h values.
-LIST* A_star_path(vector* _start, vector* _end, char client_id)
+LIST* A_star_path(vector* _start, vector* _end)
 {
     node** every_nodes = calloc(ROWS*COLS, sizeof(node*));
 
@@ -473,7 +488,7 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
             // TODO: Delete each element in every_nodes here
             for (int i = 0; i < ROWS*COLS; i++)
                 if(every_nodes[i] != NULL)
-                    free(every_node[i]);
+                    free(every_nodes[i]);
             free(every_nodes);
             free(start);
             free(end);
@@ -526,14 +541,40 @@ LIST* A_star_path(vector* _start, vector* _end, char client_id)
     LIST_destroy(cameFrom);
     for (int i = 0; i < ROWS*COLS; i++)
         if(every_nodes[i] != NULL)
-            free(every_node[i]);
+            free(every_nodes[i]);
     free(every_nodes);
     return NULL;
 }
 
-inline void fill_polygon(LIST* vecs)
+int vec_sort(const void* _this, const void* _other)
 {
-    // This function does the scan line thing vetically and does the own filling.
+    register vector* this = (vector *)_this;
+    register vector* other = (vector *)_other;
+
+    if (X_Y_TO_1D(this->x, this->y) < X_Y_TO_1D(other->x, other->y)) {
+        return -1;
+    } else if (this->x == other->x && this->y == other->y) {
+        return 0;
+    }
+
+    return 1;
+}
+
+inline char fill_polygon(LIST* vecs, char client_id)
+{
+    qsort(vecs->items[0], LIST_SIZE(vecs), sizeof(vector *), vec_sort);
+    // Take 2 elements from behind and fill it inside.   (Not meant to be sexual).
+    for (int i = LIST_SIZE(vecs) - 1; i >= 0; i-=2) {
+        vector* edge1 = vecs->items[i];     // This should be greater than the (i-1).
+        vector* edge2 = vecs->items[i-1];
+        if (edge1->y != edge2->y)
+            return -1;
+        int y = edge1->y;
+        // Fills the polygon with the own thing.
+        for (int x = edge2->x; x <= edge1->x; x++)
+            SET_OWNS(estate[X_Y_TO_1D(x, y)], client_id);
+    }
+    return 0;
 }
 
 inline void update_positions(paper_client* p_client)
@@ -615,16 +656,16 @@ inline void update_positions(paper_client* p_client)
         client_dead(&clients[GET_CONQUERING(X_Y_TO_1D(p_client->head_loc.x, p_client->head_loc.y))]);
 
     // This connects all the conquering and own based on some math.
-    // The code is not gonna run if the moved flag is not set.
-    if (moved && connect_estates(p_client))
-        return;
+    if (moved)
+        connect_estates(p_client);
+    return;
 
 }
 
 inline int create_server()
 {
     struct sockaddr_in me;
-    if ((main_socket = socket.socket(AF_INET, SOCK_DRGAM. IPPROTO_UDP)) == -1) {
+    if ((main_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
         perror("socket creation");
         return -1;
     }
@@ -644,19 +685,22 @@ int run_loop()
 {
     char buf[BUFFER_LEN];
     struct sockaddr_in client_addr;
-    int s_len, len_data;
+    unsigned int s_len, len_data;
     while(1) {
-        len_data = recvfrom(main_socket, buf, BUFFER_LEN, 0, (struct sockaddr*)&client_addr, &s_len);
+        len_data = recvfrom(main_socket, buf, BUFFER_LEN, MSG_WAITALL, (struct sockaddr*)&client_addr, &s_len);
+        // Need to perform an orderly shutdown or smth
+        if (len_data < 2)
+            continue;
 #ifdef DEBUG_ON
         printf("[i] New Data from: %s with data[%d] -> %c%c%c%c...", inet_ntoa(client_addr.sin_addr), 
                 len_data, buf[0], buf[1], buf[2], buf[3]);
 #endif
         
         for(int i = 0; i < MAX_CLIENTS; i++) {
-            if(memcmp(clients[i].io, &client_addr, sizeof(struct sockaddr_in)) == 0)
-                on_client_read(&clients[i], buf, len_data);
+            if(buf[0] == clients[i].client_id)
+                on_client_read(&clients[i], buf+1, len_data-1);
             else
-                on_client_connect(&client_addr, buf, len_data);
+                on_client_connect(&client_addr, buf+1, len_data-1);
         }
     }
     return 0;
@@ -666,14 +710,13 @@ int main(int argc, char *argv[])
 {
     struct sigaction sa;
     struct itimerval timer;
-    int s;
 
     srand(time(NULL));  /* Useful for rand() later */
     estate = malloc(ROWS * COLS * sizeof(char));
 
     // initialize with -1.
     memset(estate, -1, ROWS * COLS * sizeof(char));
-    for (int i = 0; i < MAX_CLIENTS; i++)
+    for (int i = 0; i < MAX_CLIENTS; i++) {
         clients[i].conq = LIST_new(20, free);
         clients[i].client_id = -1;
     }
